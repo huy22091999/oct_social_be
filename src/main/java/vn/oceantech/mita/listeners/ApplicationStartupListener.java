@@ -1,0 +1,152 @@
+package vn.oceantech.mita.listeners;
+
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.InitializingBean;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationListener;
+import org.springframework.context.event.ContextRefreshedEvent;
+import org.springframework.core.env.Environment;
+import org.springframework.stereotype.Component;
+import vn.oceantech.mita.domain.Role;
+import vn.oceantech.mita.dto.RoleDto;
+import vn.oceantech.mita.dto.UserDto;
+import vn.oceantech.mita.service.RoleService;
+import vn.oceantech.mita.service.UserService;
+import vn.oceantech.mita.utils.CommonUtils;
+import vn.oceantech.mita.utils.Constants;
+
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+@Component
+public class ApplicationStartupListener implements ApplicationListener<ContextRefreshedEvent>, InitializingBean {
+
+	private static boolean eventFired = false;
+
+	@Autowired
+	private RoleService roleService;
+
+	@Autowired
+	private UserService userService;
+	
+	@Autowired
+	private Environment env;
+//	@Autowired
+//	private ResourceDefService resDefService;
+
+	private static final Logger logger = LoggerFactory.getLogger(ApplicationStartupListener.class);
+
+	@Override
+	public void onApplicationEvent(ContextRefreshedEvent event) {
+
+		if (eventFired) {
+			return;
+		}
+
+		logger.info("Application started.");
+
+		eventFired = true;
+		
+		try {
+			createRoles();
+			createAdminUser();
+		} catch (XMLStreamException e) {
+			e.printStackTrace();
+		}
+
+		createAdminUser();		
+	}
+
+	@Override
+	public void afterPropertiesSet() throws Exception {
+	}
+
+	private void createAdminUser() {
+
+		UserDto userDto = userService.findByUsername(Constants.USER_ADMIN_USERNAME);
+
+		if (CommonUtils.isNotNull(userDto)) {
+			return;
+		}
+
+		userDto = new UserDto();
+		userDto.setUsername(Constants.USER_ADMIN_USERNAME);
+		//userDto.setPassword(SecurityUtils.getHashPassword("admin"));
+		userDto.setPassword("admin");
+		userDto.setEmail("admin@globits.net");
+		userDto.setActive(true);
+		userDto.setDisplayName("Admin User");
+
+		Role role = roleService.findByName(Constants.ROLE_ADMIN);
+		
+		userDto.getRoles().addAll(Arrays.asList(new RoleDto(role)));
+
+		
+		try {
+			userService.save(userDto);
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}
+	}
+
+	private void createRoles() throws XMLStreamException {
+
+		List<String> roleNames = new ArrayList<>();
+
+		XMLInputFactory inputFactory = XMLInputFactory.newInstance();
+		InputStream in = getClass().getClassLoader().getResourceAsStream("sys-roles.xml");
+		XMLStreamReader streamReader = inputFactory.createXMLStreamReader(in, "UTF-8");
+
+		streamReader.nextTag();
+		streamReader.nextTag();
+
+		while (streamReader.hasNext()) {
+			if (streamReader.isStartElement()) {
+				switch (streamReader.getLocalName()) {
+				case "name": {
+					roleNames.add(streamReader.getElementText());
+					break;
+				}
+				}
+			}
+			streamReader.next();
+		}
+
+		streamReader.close();
+
+		for (String roleName : roleNames) {
+			createRoleIfNotExist(roleName);
+		}
+	}
+
+	private void createRoleIfNotExist(String roleName) {
+
+		if (CommonUtils.isEmpty(roleName)) {
+			return;
+		}
+
+		Role role = roleService.findByName(roleName);
+
+		if (CommonUtils.isNotNull(role)) {
+			return;
+		}
+
+		if (role == null) {
+			role = new Role();
+			role.setName(roleName);
+		}
+
+		try {
+			roleService.save(role);
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}
+	}
+}
